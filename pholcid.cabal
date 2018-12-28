@@ -1,0 +1,27 @@
+name:                pholcid
+version:             0.0.1
+cabal-version:       2.4
+license:             MIT
+license-file:        LICENSE
+copyright:           Public Domain
+author:              David Heras <email hidden>
+maintainer:          David Heras <email hidden>
+source-repository head
+  type:              git
+  location:          git://github.com/dtheras/pholcid.git
+homepage:            https://github.com/dtheras/pholcid
+bugreports:          https://github.com/dtgeras/pholcid/issues
+stability:           alpha
+category:            System
+synopsis:            ranger port written in haskell
+description:         pholcid is a port of the ranger file manager (originally
+                     written in python).
+extra-source-files:  CHANGELOG.md
+                     --README.md
+                     --man/pholcid.1
+executable pholcid
+  main-is:           pholcid.hs
+  build-depends:     base ^>=4.11.1.0
+  hs-source-dirs:    src
+  default-language:  Haskell2010
+  other-modules:     Paths_pholcid
