@@ -1,1 +1,1 @@
-ghc pholcid.hs
+ghc fm.hs
