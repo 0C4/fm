@@ -1,19 +1,30 @@
-main :: IO ()
-main = return ()
+
+module Fm where
 
 
 -- | Testing a recompile of a program from a config of a Haskell file.
--- Based off xmonad-0.15's implimentation, significantly trimmed down.
+-- Based off xmonad
 
 import Control.Monad.IO.Class (MonadIO, liftIO)
+import Data.Default (Default, def)
 
 
+fm :: Config -> IO ()
+fm c = return ()
 
 
+data Config = MkConf { myInt :: Int }
 
-getFmDataDir = undefined
+
+defaultConfig :: Config
+defaultConfig = MkConf 0
 
 
+io :: MonadIO m => IO a -> m a
+io = liftIO
+
+
+{-
 recomile :: MonadIO m => Bool -> m Bool
 recompile s = io $ do
   dir  <- getFmDir
@@ -25,10 +36,5 @@ recompile s = io $ do
  where
    getFmDir :: MonadIO m => m String
    getFmDir = io $
+-}
 
-
-
-
-
----
-io = liftIO
