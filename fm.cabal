@@ -4,8 +4,8 @@ cabal-version:       2.4
 license:             MIT
 license-file:        LICENSE
 copyright:           Public Domain
-author:              David Heras <email hidden>
-maintainer:          David Heras <email hidden>
+author:              David Heras
+maintainer:          dheras@protonmail.com
 source-repository head
   type:              git
   location:          git://github.com/dtheras/fm.git
@@ -13,9 +13,9 @@ homepage:            https://github.com/dtheras/fm
 bugreports:          https://github.com/dtgeras/fm/issues
 stability:           alpha
 category:            System
-synopsis:            ranger port written in haskell
-description:         fm is a port of the "ranger" file manager
-extra-source-files:  CHANGELOG.md
+synopsis:            a terminal-based file manager
+description:         fm is a port of the "ranger" file manager written in Haskell.
+ghc-options:         -Wall -XNoArrows
 executable: fm
   main-is:           fm.hs
   build-depends:     base ^>=4.11.1.0

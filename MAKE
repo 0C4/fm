@@ -1,1 +1,1 @@
-ghc fm.hs
+ghc -o fm fm_config.hs
