@@ -3,6 +3,7 @@
 module Fm where
 
 import Core
+import Utils
 
 import Control.Exception
 import Control.Monad.IO.Class (MonadIO, liftIO)
@@ -68,14 +69,6 @@ data LaunchParams = LaunchParams {
 
 
 
-defaultLaunchParams = LaunchParams {
-    profile = False
-  , configPath = Nothing
-  , clean = False
-  }
-
-
-
 
 
 
@@ -109,18 +102,6 @@ catchIOErr act f = catch (Just <$> act f) (\(SomeException _) -> return Nothing)
 
 catchIOErrBool :: (a -> IO Bool) -> a -> IO Bool
 catchIOErrBool act s = catch (act s) (\(SomeException _) -> return False)
-
-
-io :: MonadIO m => IO a -> m a
-io = liftIO
-
-
-unitA :: Applicative f => f ()
-unitA = pure ()
-
-
-unitM :: Monad m => m ()
-unitM = return ()
 
 
 

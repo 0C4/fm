@@ -1,13 +1,22 @@
 {-# LANGUAGE OverloadedStrings  #-}
-{-# LANGUAGE DeriveFunctor      #-}
 {-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE DeriveAnyClass     #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE RecordWildCards    #-}
 
-module Core where
+
+
+
+-- LANGUAGE ExistentialQuantification, FlexibleInstances, GeneralizedNewtypeDeriving,
+--             MultiParamTypeClasses, TypeSynonymInstances, DeriveDataTypeable #-}
+
+
+
+
+
+--module Core where
 
 import Utils
-import FileStack (FileStack(..), flatten)
-
+import Brick
 import Prelude hiding (filter)
 import Control.Monad (ap, liftM2)
 import Control.Monad.Base
@@ -17,132 +26,82 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.State.Strict (modify) {- MonadState s m => (s -> s) -> m ()-}
 import Data.Default
+import Data.Map
 import qualified Data.List as L (filter)
-import Data.Sequence (Seq)
-import Data.Text (Text)
 import Data.Time (UTCTime)
 import Data.Typeable (Typeable)
 import System.Directory (getCurrentDirectory)
-import System.Directory.Internal (Permissions(..)
+import System.Directory.Internal (Permissions(..))
 import System.Exit (ExitCode(..))
 import System.Time (ClockTime(..), getClockTime)
-
-
-
--- | For our enumerated data types, the default is always the first data constructor.
-instance Bounded a => Default a where
-  def = minBound
-
-
-type FileStack = Seq FileData
-
-
-type Folder l = Folder {
-   }
-
-
-next :: a -> Seq a -> a
-next = undefined
+import System.IO
 
 
 -- | (Env)ironment: the current state of the program.
 data Env = Env {
+
   -- Updated periodically without user input
-    time             :: ClockTime
+    time             :: Int {- clocktime -}
   , freeDiskSpace    :: Int
   , userHomeDir      :: FilePath
-  , configDir        :: FilePath
-  , log              :: Map UTCTime Text
+
   -- Updated frequently in response to user input
   , executingLock    :: Maybe Int
-  , fileStack        :: FileStack
-  , parentStack      :: FileStack
+  , fileStack        :: ()--filestack
+  , parentStack      :: ()--filestack
   , focusDirCount    :: Int
   , focusPos         :: Int
-  , focusModTime     :: ClockTime
-  , focusPermissions :: Permissions
-  , focusOwner       :: Text
-  , focusType        :: Text
+  , focusModTime     :: Int --ClockTime
+  , focusPermissions :: () {-Permissions-}
+  , focusOwner       :: String
+  , focusType        :: String
+  }
+
+defaultEnv :: Env
+defaultEnv = Env {
+    time = 0
+  , freeDiskSpace = 0
+  , userHomeDir = ""
+  , executingLock = Nothing
+  , fileStack = ()
+  , parentStack = ()
+  , focusDirCount = 0
+  , focusPos = 0
+  , focusModTime = 0
+  , focusPermissions = ()
+  , focusOwner = ""
+  , focusType = ""
   }
 
 
-modifyStack :: (FileStack -> FileStack) -> Env -> Env
-modifyStack f env = let x = fileStack env
-                    in env { fileStack = f x }
+data DisplayMode = MillerColumns | MidnightCommander | SingleColumn
+                 deriving (Read, Show, Eq, Enum, Bounded)
 
 
-modifyParentStack :: (FileStack -> FileStack) -> Env -> Env
-modifyParentStack f env = let x = parentStack env
-                          in env { parentStack = f x }
-
-
-peekFocus :: Env -> FilePath
-peekFocus = focus . focusStack
-
-
-flattenStack :: Env -> [FilePath]
-flattenStack = flatten . fileStack
-
-
-flattenparentstack :: Env -> [FilePath]
-flattenParentStack = flatten . parentStack
-
-
-data Sorting
-  = SortNone      -- ^ No enforced sorting, return results as system provides
-  | SortID        -- ^ By file id number
-  | SortAZ        -- ^ By file name
-  | SortDateMod   -- ^ By date modified
-  | SortDateCreat -- ^ By date created
-  | SortSize      -- ^ By size: # contents for dirs, #bytes for files
-  | SortType      -- ^ By type, alphabetically
-  deriving (Read, Show, Eq, Enum, Bounded)
-
-
-readSorting :: Sorting -> (Folder l -> Folder l)
-readSorting = undefined
-
-
-data BorderStyle
-  = BorderNone
-  | BorderSolid
-  | BorderDash
-  deriving (Read, Show, Eq, Enum, Bounded)
-
-
-data ViewMode
-  = ViewMiller
-  | ViewMC
-  | ViewSingle
-  deriving (Read, Show, Eq, Enum, Bounded)
-
-
-data PermissionsFormat
-  = PermNum
-  | PermAlph
-  deriving (Read, Show, Eq)
+data PermissionsFormat = Symbolic | Octal
+                       deriving (Read, Show, Eq)
 
 
 -- | Config, read-only
-data Conf = Conf
+data Conf = Conf {
+
   -- hooks
-  { logHook            :: !(Fm ()) -- ^ The action to perform when logging
+    logHook            :: !(Fm ()) -- ^ The action to perform when logging
   , startupHook        :: !(Fm ()) -- ^ The action to perform on startup
   , exitHook           :: !(Fm ()) -- ^ Action to perform upon regular exit
 
-
   -- key bindings
-  , keys         :: !(Map (KeyMask, KeySym) (Fm ()))
-                    -- ^ a mapping of key presses to actions
+  , keys                :: !(Map (KeyMask, KeySym) (Fm ()))
+                        -- ^ a mapping of key presses to actions
 
   -- display
-  , progName            :: Text
+  , progName            :: String
   , colorScheme         :: ()
-  , biewMode            :: ViewMode
+  , displayMode         :: DisplayMode
   , columnRatios        :: (Int,Int,Int)
   , silentCommands      :: Bool -- ^ whether user wish command result to print
   , saveConfigUponQuit  :: Bool
-  , sort                :: Folder l -> Folder l
+  , sort                :: Bool
   , sortCaseSensitive   :: Bool
   , sortDirsFirst       :: Bool
   , sortReverse         :: Bool
@@ -154,7 +113,6 @@ data Conf = Conf
   , displayOwner        :: Bool
   , displayStatusBar    :: Bool
   , displayPath         :: Bool
-  , drawBorders         :: BorderStyle
 
   -- previewing
   , countContents       :: Bool
@@ -164,21 +122,47 @@ data Conf = Conf
 
   -- logging
   , saveLog             :: Maybe FilePath -- ^ save to a log
-  , maxLogSize          :: Int  -- ^ maximum number of log entries
-  } deriving (Show, Eq, Read)
+  }
 
 
+defaultConf :: Conf
+defaultConf = Conf {
+    logHook = unit
+  , startupHook = unit
+  , exitHook  = unit
+  , keys = empty
+  , progName = ""
+  , colorScheme = ()
+  , displayMode = MillerColumns
+  , columnRatios = (1,3,4)
+  , silentCommands = True
+  , saveConfigUponQuit = True
+  , sort = True
+  , sortCaseSensitive = True
+  , sortDirsFirst = True
+  , sortReverse = True
+  , showHidden = True
+  , permissionsFormat = Symbolic
+  , displayDiskUsage = True
+  , displaySize = True
+  , displayPermissions = True
+  , displayOwner = True
+  , displayStatusBar = True
+  , displayPath = True
+  , countContents = True
+  , previewDirectories = True
+  , previewTextFiles = True
+  , maxPreviewSize = 0
+  , saveLog = Nothing
+  }
 
-
-
-
-
-
-
-
-
-
-
+-- | INCOMPLETE, and only for testing purposes.
+instance Show Conf where
+  show Conf{..} = unlines $ [ "Display Mode: " ++ (show displayMode)
+                            , "Program Name: " ++ progName
+                            , "Max File Size for previewing: " ++ show maxPreviewSize
+                            , "Save Log: " ++ show saveLog
+                            ]
 
 
 -- | The Fm Monad
@@ -199,26 +183,76 @@ instance Default a => Default (Fm a) where
   def = return def
 
 
+
+modifyBase :: (MonadBase b m, MonadState s m) => (s -> b s) -> m ()
+modifyBase f = get >>= f =>> liftBase >>= put
+
+
+
+
+
+-- * * * * * * * * * --
+-- FOR TESTING ONLY  --
+-- * * * * * * * * * --
+
+
 runFm :: Conf -> Env -> Fm a -> IO (a, Env)
 runFm c s (Fm a) = runStateT (runReaderT a c) s
 
+out :: (Show r, MonadIO m, MonadReader r m) => m ()
+out = ask >>= err
 
-putBase :: MonadBase b m, MonadState s m => (s -> b s) -> m a
-putBase f = get >>= f =>> liftBase >>= put
-
-
-
-
+err :: (MonadIO m, Show a) => a -> m ()
+err = io . hPutStrLn stderr . show
 
 
--- | FOR TESTING ONLY
---
-writeOutConfigData :: MonadIO m => Fm a -> Fm ()
-writeOutConfigData c = do
-  a <- ask
-  hPutStrLn stder
+
+type KeyMask = String
+type KeySym = String
+
+ui :: Fm (Widget ())
+ui = do
+  r <- ask
+  let msg = show $ permissionsFormat r
+  return $ str msg
 
 
+
+
+main :: IO ()
+main = do
+  (x,_) <- runFm defaultConf defaultEnv ui
+  simpleMain x
+
+-- * * * * * * * * * --
+--        END        --
+-- * * * * * * * * * --
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+{-
+data Sorting
+  = SortNone      -- ^ No enforced sorting, return results as system provides
+  | SortID        -- ^ By file id number
+  | SortAZ        -- ^ By file name
+  | SortDateMod   -- ^ By date modified
+  | SortDateCreat -- ^ By date created
+  | SortSize      -- ^ By size: # contents for dirs, #bytes for files
+  | SortType      -- ^ By type, alphabetically
+  deriving (Read, Show, Eq, Enum, Bounded)
+-}
 
 
 

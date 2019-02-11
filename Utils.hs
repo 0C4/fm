@@ -1,13 +1,11 @@
-
 -- | Shared utility functions
---
---
 module Utils where
 
 import Prelude hiding (guard)
 import Control.Monad (MonadPlus, mzero)
 import Control.Monad.IO.Class
 import System.IO (hPutStrLn, stderr)
+
 
 unit :: Monad m => m ()
 unit = return ()
@@ -27,41 +25,28 @@ guard :: MonadPlus m => Bool -> m a -> m a
 guard b a = b ?: (a, mzero)
 
 
+-- | Cycle through the data type
 toggle :: (Eq a, Enum a, Bounded a) => a -> a
 toggle = ite (== maxBound) (const minBound) succ
 
 
--- shorthand nabbed from xmonad
+-- | Shorthand nabbed from xmonad
 io :: MonadIO m => IO a -> m a
 io = liftIO
 
 
--- reverse function application
+-- | Reverse function application
 (<&) :: a -> (a -> b) -> b
-(<&) x y = y x
+(<&) = flip ($)
 infixr 0 <&
 
--- reverse fmap application
+
+-- | Reverse fmap application
 (^&) :: Functor f => f a -> (a -> b) -> f b
 (^&) = flip fmap
 infixl 4 ^&
 
--- reverse function chaining
+-- | Reverse function chaining
 (=>>) :: (a -> b) -> (b -> c) -> a -> c
 (=>>) = flip (.)
 infixr 9 =>>
-
-
-
--- * * * * * * * * * --
--- FOR TESTING ONLY  --
--- * * * * * * * * * --
-
-out :: Show a => Fm a -> Fm ()
-out = ask >>= err
-  where
-    err = io . hPutStrLn stderr . show
-
--- * * * * * * * * * --
---        END        --
--- * * * * * * * * * --
