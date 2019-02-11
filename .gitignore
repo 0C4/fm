@@ -1,6 +1,5 @@
 .cabal-sandbox/*
 cabal.sandbox.config
-.ignorables/*
 profiling/*
 fm_config.hi
 fm_config.o

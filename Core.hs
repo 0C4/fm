@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings  #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE DeriveFunctor      #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveAnyClass     #-}
@@ -11,26 +10,35 @@ import FileStack (FileStack(..), flatten)
 
 import Prelude hiding (filter)
 import Control.Monad (ap, liftM2)
-import Control.Monad.Fail (MonadFail)
-import Control.Monad.IO.Class (MonadIO)
-import Control.Monad.Reader (MonadReader, ReaderT(..), ask)
-import Control.Monad.State (StateT(..), MonadState)
-import Data.Default (Default,def)
+import Control.Monad.Base
+import Control.Monad.Fail
+import Control.Monad.IO.Class
+import Control.Monad.Reader
+import Control.Monad.State
+import Control.Monad.State.Strict (modify) {- MonadState s m => (s -> s) -> m ()-}
+import Data.Default
 import qualified Data.List as L (filter)
 import Data.Sequence (Seq)
 import Data.Text (Text)
 import Data.Time (UTCTime)
 import Data.Typeable (Typeable)
 import System.Directory (getCurrentDirectory)
-import System.Directory.Internal (Permissions(..))
+import System.Directory.Internal (Permissions(..)
 import System.Exit (ExitCode(..))
 import System.Time (ClockTime(..), getClockTime)
 
 
-deriving instance Read ClockTime
+
+-- | For our enumerated data types, the default is always the first data constructor.
+instance Bounded a => Default a where
+  def = minBound
 
 
 type FileStack = Seq FileData
+
+
+type Folder l = Folder {
+   }
 
 
 next :: a -> Seq a -> a
@@ -76,7 +84,7 @@ flattenStack :: Env -> [FilePath]
 flattenStack = flatten . fileStack
 
 
-flattenParentStack :: Env -> [FilePath]
+flattenparentstack :: Env -> [FilePath]
 flattenParentStack = flatten . parentStack
 
 
@@ -89,6 +97,10 @@ data Sorting
   | SortSize      -- ^ By size: # contents for dirs, #bytes for files
   | SortType      -- ^ By type, alphabetically
   deriving (Read, Show, Eq, Enum, Bounded)
+
+
+readSorting :: Sorting -> (Folder l -> Folder l)
+readSorting = undefined
 
 
 data BorderStyle
@@ -111,38 +123,61 @@ data PermissionsFormat
   deriving (Read, Show, Eq)
 
 
--- | Config
--- Read-only currently. Would like to be able to toggle conf on the fly
-data Conf = Conf {
-    cProgName            :: Text
-  , cKeyBindings         :: ()
-  , cColorScheme         :: ()
-  , cViewMode            :: ViewMode
-  , cColumnRatios        :: (Int,Int,Int)
-  , cSilentCommands      :: Bool -- ^ whether user wish command result to print
-  , cSaveConfigUponQuit  :: Bool
-  , cSort                :: Directory -> Directory
-  , cSortCaseSensitive   :: Bool
-  , cSortDirsFirst       :: Bool
-  , cSortReverse         :: Bool
-  , cShowHidden          :: Bool
-  , cPermissionsFormat   :: PermissionsFormat
-  , cDisplaySpecialFiles :: Bool
-  , cDisplayDiskUsage    :: Bool
-  , cDisplaySize         :: Bool
-  , cDisplayPermissions  :: Bool
-  , cDisplayOwner        :: Bool
-  , cDisplayStatusBar    :: Bool
-  , cDisplayPath         :: Bool
-  , cCountContents       :: Bool
-  , cDrawBorders         :: BorderStyle
-  , cPreviewDirectories  :: Bool
-  , cPreviewTextFiles    :: Bool
-  , cMaxPreviewSize      :: Int
-  , cSaveLog             :: Bool -- ^ whether to save log upon exit
-  , cMaxLogSize          :: Int  -- ^ maximum number of log entries
-  , cLogFile             :: Maybe FilePath
+-- | Config, read-only
+data Conf = Conf
+  -- hooks
+  { logHook            :: !(Fm ()) -- ^ The action to perform when logging
+  , startupHook        :: !(Fm ()) -- ^ The action to perform on startup
+  , exitHook           :: !(Fm ()) -- ^ Action to perform upon regular exit
+
+
+  -- key bindings
+  , keys         :: !(Map (KeyMask, KeySym) (Fm ()))
+                    -- ^ a mapping of key presses to actions
+
+  -- display
+  , progName            :: Text
+  , colorScheme         :: ()
+  , biewMode            :: ViewMode
+  , columnRatios        :: (Int,Int,Int)
+  , silentCommands      :: Bool -- ^ whether user wish command result to print
+  , saveConfigUponQuit  :: Bool
+  , sort                :: Folder l -> Folder l
+  , sortCaseSensitive   :: Bool
+  , sortDirsFirst       :: Bool
+  , sortReverse         :: Bool
+  , showHidden          :: Bool
+  , permissionsFormat   :: PermissionsFormat
+  , displayDiskUsage    :: Bool
+  , displaySize         :: Bool
+  , displayPermissions  :: Bool
+  , displayOwner        :: Bool
+  , displayStatusBar    :: Bool
+  , displayPath         :: Bool
+  , drawBorders         :: BorderStyle
+
+  -- previewing
+  , countContents       :: Bool
+  , previewDirectories  :: Bool
+  , previewTextFiles    :: Bool
+  , maxPreviewSize      :: Int
+
+  -- logging
+  , saveLog             :: Maybe FilePath -- ^ save to a log
+  , maxLogSize          :: Int  -- ^ maximum number of log entries
   } deriving (Show, Eq, Read)
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -156,22 +191,8 @@ data Conf = Conf {
 -- Note: Writter monad (for logging) is mimicked with use of State
 --
 newtype Fm a = Fm (ReaderT Conf (StateT Env IO) a)
-             deriving (Functor, Monad, MonadFail, MonadIO,
-                       MonadState Env, MonadReader Conf, Typeable)
-
-
-instance Applicative Fm where
-  pure = return
-  (<*>) = ap
-
-
-instance Semigroup a => Semigroup (Fm a) where
-  (<>) = liftM2 (<>)
-
-
-instance (Monoid a) => Monoid (Fm a) where
-  mempty  = return mempty
-  mappend = liftM2 mappend
+             deriving (Functor, Applicative, Monad, MonadFail, MonadIO,
+                       MonadState Env, MonadReader Conf, MonadBase IO, Typeable)
 
 
 instance Default a => Default (Fm a) where
@@ -182,8 +203,87 @@ runFm :: Conf -> Env -> Fm a -> IO (a, Env)
 runFm c s (Fm a) = runStateT (runReaderT a c) s
 
 
-scrollUp :: Fm ()
-scrollUp = io $ scrollUp' =<< get
-  where
-    scrollUp' :: Env -> IO Env
-    scrollUp' = undefined
+putBase :: MonadBase b m, MonadState s m => (s -> b s) -> m a
+putBase f = get >>= f =>> liftBase >>= put
+
+
+
+
+
+
+-- | FOR TESTING ONLY
+--
+writeOutConfigData :: MonadIO m => Fm a -> Fm ()
+writeOutConfigData c = do
+  a <- ask
+  hPutStrLn stder
+
+
+
+
+
+{-
+
+-- | FileStack
+-- Holds the list of directory contents
+data FileStack = FileStack {
+    focus :: FilePath
+  , up    :: [FilePath]
+  , down  :: [FilePath]
+  } deriving (Read, Show, Eq)
+
+
+emptyStack :: FileStack
+emptyStack = FileStack "" [] []
+
+
+filter :: (FilePath -> Bool) -> FileStack -> FileStack
+filter p (FileStack f ls rs) =
+  case L.filter p (f:rs) of
+    f':rs' -> FileStack f' (L.filter p ls) rs'
+    []     -> case L.filter p ls of
+                f':ls' -> FileStack f' ls' []
+                []     -> emptyStack
+
+
+-- if focus is empty but up or down are not, shift so focus is in right spot
+normalize :: FileStack -> FileStack
+normalize = filter (not . null)
+
+
+flatten :: FileStack -> [FilePath]
+flatten (FileStack f ls rs) = reverse ls ++ [f] ++ rs
+
+
+merge :: FileStack -> FileStack -> FileStack
+merge fs1 fs2 = let rh = down fs1
+                in  fs1 { down = rh ++ flatten fs2 }
+
+
+differentiate :: [FilePath] -> FileStack
+differentiate []     = emptyStack
+differentiate (f:fs) = FileStack f [] fs
+
+
+-- | reverse a stack: up becomes down and down becomes up.
+reverseStack :: FileStack -> FileStack
+reverseStack (FileStack t ls rs) = FileStack t rs ls
+
+
+focusUp, focusDown, focusTop, focusBot :: FileStack -> FileStack
+focusUp fs@(FileStack f (l:ls) rs)
+  | null (l:ls)  = fs
+  | otherwise    = FileStack l ls (f:rs)
+focusDown fs@(FileStack f ls (r:rs))
+  | null (r:rs)  = fs
+  | otherwise    = FileStack r (f:ls) rs
+focusTop fs@(FileStack f ls rs)
+  | null ls      = fs
+  | otherwise    = FileStack x [] (xs ++ [f] ++ rs) where (x:xs) = reverse ls
+focusBot fs@(FileStack f ls rs)
+  | null rs      = fs
+  | otherwise    = FileStack x (xs ++ [f] ++ ls) where (x:xs) = reverse rs
+
+
+moveFocusTo :: FilePath -> FileStack -> FileStack
+-}
