@@ -1,76 +1,79 @@
-{-# LANGUAGE OverloadedStrings  #-}
-{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE DeriveDataTypeable         #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE RecordWildCards    #-}
-
-
-
-
--- LANGUAGE ExistentialQuantification, FlexibleInstances, GeneralizedNewtypeDeriving,
---             MultiParamTypeClasses, TypeSynonymInstances, DeriveDataTypeable #-}
-
-
-
-
+{-# LANGUAGE RecordWildCards            #-}
+{-# LANGUAGE TemplateHaskell            #-}
 
 --module Core where
 
 import Utils
+
 import Brick
+import Brick.BChan
+
 import Prelude hiding (filter)
+import Control.Lens ((^.), (.~), (%~))
+import Control.Lens.TH (makeLenses)
 import Control.Monad (ap, liftM2)
 import Control.Monad.Base
 import Control.Monad.Fail
 import Control.Monad.IO.Class
 import Control.Monad.Reader
-import Control.Monad.State
-import Control.Monad.State.Strict (modify) {- MonadState s m => (s -> s) -> m ()-}
+import Control.Monad.State.Strict hiding (modify)
 import Data.Default
 import Data.Map
 import qualified Data.List as L (filter)
-import Data.Time (UTCTime)
+import Data.Time
 import Data.Typeable (Typeable)
-import System.Directory (getCurrentDirectory)
+import System.Directory
 import System.Directory.Internal (Permissions(..))
 import System.Exit (ExitCode(..))
-import System.Time (ClockTime(..), getClockTime)
 import System.IO
+
+
+
+
+type KeyMask = String
+type KeySym = String
 
 
 -- | (Env)ironment: the current state of the program.
 data Env = Env {
 
   -- Updated periodically without user input
-    time             :: Int {- clocktime -}
-  , freeDiskSpace    :: Int
-  , userHomeDir      :: FilePath
+    _time             :: UTCTime
+  , _freeDiskSpace    :: Int
+  , _userHomeDir      :: FilePath
 
   -- Updated frequently in response to user input
-  , executingLock    :: Maybe Int
-  , fileStack        :: ()--filestack
-  , parentStack      :: ()--filestack
-  , focusDirCount    :: Int
-  , focusPos         :: Int
-  , focusModTime     :: Int --ClockTime
-  , focusPermissions :: () {-Permissions-}
-  , focusOwner       :: String
-  , focusType        :: String
+  , _executingLock    :: Maybe Int
+  , _focus            :: FilePath
+  , _fileStack        :: ()--filestack
+  , _parentStack      :: ()--filestack
+  , _focusDirCount    :: Int
+  , _focusPos         :: Int
+  , _focusModTime     :: Int --ClockTime
+  , _focusPermissions :: () {-Permissions-}
+  , _focusOwner       :: String
+  , _focusType        :: String
   }
+
 
 defaultEnv :: Env
 defaultEnv = Env {
-    time = 0
-  , freeDiskSpace = 0
-  , userHomeDir = ""
-  , executingLock = Nothing
-  , fileStack = ()
-  , parentStack = ()
-  , focusDirCount = 0
-  , focusPos = 0
-  , focusModTime = 0
-  , focusPermissions = ()
-  , focusOwner = ""
-  , focusType = ""
+    _time = 0
+  , _freeDiskSpace = 0
+  , _userHomeDir = ""
+  , _executingLock = Nothing
+  , _focus = ""
+  , _fileStack = ()
+  , _parentStack = ()
+  , _focusDirCount = 0
+  , _focusPos = 0
+  , _focusModTime = 0
+  , _focusPermissions = ()
+  , _focusOwner = ""
+  , _focusType = ""
   }
 
 
@@ -86,83 +89,73 @@ data PermissionsFormat = Symbolic | Octal
 data Conf = Conf {
 
   -- hooks
-    logHook            :: !(Fm ()) -- ^ The action to perform when logging
-  , startupHook        :: !(Fm ()) -- ^ The action to perform on startup
-  , exitHook           :: !(Fm ()) -- ^ Action to perform upon regular exit
-
-  -- key bindings
-  , keys                :: !(Map (KeyMask, KeySym) (Fm ()))
+    _logHook     :: !(Fm ()) -- ^ The action to perform when logging
+  , _startupHook :: !(Fm ()) -- ^ The action to perform on startup
+  , _exitHook    :: !(Fm ()) -- ^ Action to perform upon regular exit
+  , _keys                :: !(Map (KeyMask, KeySym) (Fm ()))
                         -- ^ a mapping of key presses to actions
-
   -- display
-  , progName            :: String
-  , colorScheme         :: ()
-  , displayMode         :: DisplayMode
-  , columnRatios        :: (Int,Int,Int)
-  , silentCommands      :: Bool -- ^ whether user wish command result to print
-  , saveConfigUponQuit  :: Bool
-  , sort                :: Bool
-  , sortCaseSensitive   :: Bool
-  , sortDirsFirst       :: Bool
-  , sortReverse         :: Bool
-  , showHidden          :: Bool
-  , permissionsFormat   :: PermissionsFormat
-  , displayDiskUsage    :: Bool
-  , displaySize         :: Bool
-  , displayPermissions  :: Bool
-  , displayOwner        :: Bool
-  , displayStatusBar    :: Bool
-  , displayPath         :: Bool
+  , _progName           :: String
+  , _colorScheme        :: ()
+  , _displayMode        :: DisplayMode
+  , _columnRatios       :: (Int,Int,Int)
+  , _silentCommands     :: Bool -- ^ whether user wish command result to print
+  , _saveConfigUponQuit :: Bool
+  , _sort               :: Bool
+  , _sortCaseSensitive  :: Bool
+  , _sortDirsFirst      :: Bool
+  , _sortReverse        :: Bool
+  , _showHidden         :: Bool
+  , _permissionsFormat  :: PermissionsFormat
+  , _displayDiskUsage   :: Bool
+  , _displaySize        :: Bool
+  , _displayPermissions :: Bool
+  , _displayOwner       :: Bool
+  , _displayStatusBar   :: Bool
+  , _displayPath        :: Bool
 
   -- previewing
-  , countContents       :: Bool
-  , previewDirectories  :: Bool
-  , previewTextFiles    :: Bool
-  , maxPreviewSize      :: Int
+  , _countContents       :: Bool
+  , _previewDirectories  :: Bool
+  , _previewTextFiles    :: Bool
+  , _maxPreviewSize      :: Int
 
   -- logging
-  , saveLog             :: Maybe FilePath -- ^ save to a log
+  , _saveLog             :: Maybe FilePath -- ^ save to a log
   }
 
 
 defaultConf :: Conf
 defaultConf = Conf {
-    logHook = unit
-  , startupHook = unit
-  , exitHook  = unit
-  , keys = empty
-  , progName = ""
-  , colorScheme = ()
-  , displayMode = MillerColumns
-  , columnRatios = (1,3,4)
-  , silentCommands = True
-  , saveConfigUponQuit = True
-  , sort = True
-  , sortCaseSensitive = True
-  , sortDirsFirst = True
-  , sortReverse = True
-  , showHidden = True
-  , permissionsFormat = Symbolic
-  , displayDiskUsage = True
-  , displaySize = True
-  , displayPermissions = True
-  , displayOwner = True
-  , displayStatusBar = True
-  , displayPath = True
-  , countContents = True
-  , previewDirectories = True
-  , previewTextFiles = True
-  , maxPreviewSize = 0
-  , saveLog = Nothing
+    _logHook = unit
+  , _startupHook = unit
+  , _exitHook  = unit
+  , _keys = empty
+  , _progName = ""
+  , _colorScheme = ()
+  , _displayMode = MillerColumns
+  , _columnRatios = (1,3,4)
+  , _silentCommands = True
+  , _saveConfigUponQuit = True
+  , _sort = True
+  , _sortCaseSensitive = True
+  , _sortDirsFirst = True
+  , _sortReverse = True
+  , _showHidden = True
+  , _permissionsFormat = Symbolic
+  , _displayDiskUsage = True
+  , _displaySize = True
+  , _displayPermissions = True
+  , _displayOwner = True
+  , _displayStatusBar = True
+  , _displayPath = True
+  , _countContents = True
+  , _previewDirectories = True
+  , _previewTextFiles = True
+  , _maxPreviewSize = 0
+  , _saveLog = Nothing
   }
 
--- | INCOMPLETE, and only for testing purposes.
-instance Show Conf where
-  show Conf{..} = unlines $ [ "Display Mode: " ++ (show displayMode)
-                            , "Program Name: " ++ progName
-                            , "Max File Size for previewing: " ++ show maxPreviewSize
-                            , "Save Log: " ++ show saveLog
-                            ]
 
 
 -- | The Fm Monad
@@ -175,8 +168,8 @@ instance Show Conf where
 -- Note: Writter monad (for logging) is mimicked with use of State
 --
 newtype Fm a = Fm (ReaderT Conf (StateT Env IO) a)
-             deriving (Functor, Applicative, Monad, MonadFail, MonadIO,
-                       MonadState Env, MonadReader Conf, MonadBase IO, Typeable)
+             deriving (Functor, Applicative, Monad, MonadIO,
+                       MonadState Env, MonadReader Conf, MonadBase IO)
 
 
 instance Default a => Default (Fm a) where
@@ -184,9 +177,8 @@ instance Default a => Default (Fm a) where
 
 
 
-modifyBase :: (MonadBase b m, MonadState s m) => (s -> b s) -> m ()
-modifyBase f = get >>= f =>> liftBase >>= put
-
+modify :: (MonadBase b m, MonadState s m) => (s -> b s) -> m ()
+modify f = get >>= f =>> liftBase >>= put
 
 
 
@@ -195,6 +187,15 @@ modifyBase f = get >>= f =>> liftBase >>= put
 -- FOR TESTING ONLY  --
 -- * * * * * * * * * --
 
+makeLenses ''Env
+makeLenses ''Conf
+
+instance Show Conf where
+  show Conf{..} = unlines [ "Display Mode: " ++ show _displayMode
+                          , "Program Name: " ++ _progName
+                          , "Max File Size for previewing: " ++ show _maxPreviewSize
+                          , "Save Log: " ++ show _saveLog
+                          ]
 
 runFm :: Conf -> Env -> Fm a -> IO (a, Env)
 runFm c s (Fm a) = runStateT (runReaderT a c) s
@@ -203,121 +204,50 @@ out :: (Show r, MonadIO m, MonadReader r m) => m ()
 out = ask >>= err
 
 err :: (MonadIO m, Show a) => a -> m ()
-err = io . hPutStrLn stderr . show
-
-
-
-type KeyMask = String
-type KeySym = String
+err = io . hPrint stderr
 
 ui :: Fm (Widget ())
 ui = do
-  r <- ask
-  let msg = show $ permissionsFormat r
+  s <- get
+  c <- io $ listDirectory $ focus s
+  let msg = unlines c
   return $ str msg
 
+changeDir :: Fm ()
+changeDir = modify (\env -> do d <- getCurrentDirectory
+                               let e = focus .~ env d
+                               return e
+                   )
 
-
+newtype Event = EventUpdateTime Tm.LocalTime
 
 main :: IO ()
 main = do
-  (x,_) <- runFm defaultConf defaultEnv ui
+  chan <- newBChan 5
+  void . forkIO $ forever $ do
+    t <- getTime
+    BCh.writeBChan chan $ EventUpdateTime t
+    threadDelay $ 1 * 1000000
+  t <- getTime
+
+  (x,s) <- runFm defaultConf defaultEnv (changeDir *> ui)
+
+  let st = s { _time = t }
+      u = hBox borderDemos
+        <=> B.hBorder
+        <=> colorDemo
+
   simpleMain x
+
+-- | Builds screen widget.
+visualize :: Fm (Widget ())
+visualize = do
+  s <- get
+  r <- ask
+  let format = show $ r ^. format
+  --
+  unit
 
 -- * * * * * * * * * --
 --        END        --
 -- * * * * * * * * * --
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-{-
-data Sorting
-  = SortNone      -- ^ No enforced sorting, return results as system provides
-  | SortID        -- ^ By file id number
-  | SortAZ        -- ^ By file name
-  | SortDateMod   -- ^ By date modified
-  | SortDateCreat -- ^ By date created
-  | SortSize      -- ^ By size: # contents for dirs, #bytes for files
-  | SortType      -- ^ By type, alphabetically
-  deriving (Read, Show, Eq, Enum, Bounded)
--}
-
-
-
-{-
-
--- | FileStack
--- Holds the list of directory contents
-data FileStack = FileStack {
-    focus :: FilePath
-  , up    :: [FilePath]
-  , down  :: [FilePath]
-  } deriving (Read, Show, Eq)
-
-
-emptyStack :: FileStack
-emptyStack = FileStack "" [] []
-
-
-filter :: (FilePath -> Bool) -> FileStack -> FileStack
-filter p (FileStack f ls rs) =
-  case L.filter p (f:rs) of
-    f':rs' -> FileStack f' (L.filter p ls) rs'
-    []     -> case L.filter p ls of
-                f':ls' -> FileStack f' ls' []
-                []     -> emptyStack
-
-
--- if focus is empty but up or down are not, shift so focus is in right spot
-normalize :: FileStack -> FileStack
-normalize = filter (not . null)
-
-
-flatten :: FileStack -> [FilePath]
-flatten (FileStack f ls rs) = reverse ls ++ [f] ++ rs
-
-
-merge :: FileStack -> FileStack -> FileStack
-merge fs1 fs2 = let rh = down fs1
-                in  fs1 { down = rh ++ flatten fs2 }
-
-
-differentiate :: [FilePath] -> FileStack
-differentiate []     = emptyStack
-differentiate (f:fs) = FileStack f [] fs
-
-
--- | reverse a stack: up becomes down and down becomes up.
-reverseStack :: FileStack -> FileStack
-reverseStack (FileStack t ls rs) = FileStack t rs ls
-
-
-focusUp, focusDown, focusTop, focusBot :: FileStack -> FileStack
-focusUp fs@(FileStack f (l:ls) rs)
-  | null (l:ls)  = fs
-  | otherwise    = FileStack l ls (f:rs)
-focusDown fs@(FileStack f ls (r:rs))
-  | null (r:rs)  = fs
-  | otherwise    = FileStack r (f:ls) rs
-focusTop fs@(FileStack f ls rs)
-  | null ls      = fs
-  | otherwise    = FileStack x [] (xs ++ [f] ++ rs) where (x:xs) = reverse ls
-focusBot fs@(FileStack f ls rs)
-  | null rs      = fs
-  | otherwise    = FileStack x (xs ++ [f] ++ ls) where (x:xs) = reverse rs
-
-
-moveFocusTo :: FilePath -> FileStack -> FileStack
--}
